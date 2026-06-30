@@ -17,6 +17,18 @@ This package is intentionally small and companion-only. It does **not** summariz
 
 ## Install
 
+Install from GitHub:
+
+```bash
+pi install git:github.com/TipsY14/pi-brake
+```
+
+Update later:
+
+```bash
+pi update git:github.com/TipsY14/pi-brake
+```
+
 Local development / personal install:
 
 ```bash

@@ -29,7 +29,15 @@
     "brake"
   ],
   "license": "MIT",
-  "author": "",
+  "author": "TipsY14",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TipsY14/pi-brake.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TipsY14/pi-brake/issues"
+  },
+  "homepage": "https://github.com/TipsY14/pi-brake#readme",
   "pi": {
     "extensions": [
       "./src/index.ts"
