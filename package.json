@@ -1,0 +1,53 @@
+{
+  "name": "pi-context-brake",
+  "version": "0.1.0",
+  "description": "Brake-only context-pressure guard for Pi Coding Agent that injects temporary stop guidance before compaction.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --import tsx --test test/extension.test.ts test/payload.test.ts test/state.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && node --import tsx -e \"await import('./src/index.ts')\" && npm test",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "context-window",
+    "context-management",
+    "compaction",
+    "brake"
+  ],
+  "license": "MIT",
+  "author": "",
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
