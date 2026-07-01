@@ -8,12 +8,12 @@ import { SOFT_BRAKE_PROMPT, HARD_BRAKE_PROMPT } from "../src/prompts.ts";
 import { chooseBrakeLevel, usagePercent } from "../src/state.ts";
 
 test("chooses no/soft/hard brake at configured thresholds", () => {
-  const config = { enabled: true, softThresholdPercent: 88, hardThresholdPercent: 96, notify: true, debug: false };
+  const config = { enabled: true, softThresholdPercent: 90, hardThresholdPercent: 98, notify: true };
 
-  assert.equal(chooseBrakeLevel(87.9, config), null);
-  assert.equal(chooseBrakeLevel(88, config), "soft");
-  assert.equal(chooseBrakeLevel(95.9, config), "soft");
-  assert.equal(chooseBrakeLevel(96, config), "hard");
+  assert.equal(chooseBrakeLevel(89.9, config), null);
+  assert.equal(chooseBrakeLevel(90, config), "soft");
+  assert.equal(chooseBrakeLevel(97.9, config), "soft");
+  assert.equal(chooseBrakeLevel(98, config), "hard");
   assert.equal(chooseBrakeLevel(99, { ...config, enabled: false }), null);
 });
 
@@ -22,7 +22,7 @@ test("uses reported context percent before token fallback", () => {
     usagePercent({ tokens: 10, contextWindow: 1000, percent: 42 }, [{ role: "user", content: "hello" }]),
     42,
   );
-  assert.equal(usagePercent({ tokens: 880, contextWindow: 1000, percent: null }, []), 88);
+  assert.equal(usagePercent({ tokens: 900, contextWindow: 1000, percent: null }, []), 90);
 });
 
 test("estimates context percent from messages when tokens are unknown", () => {
@@ -47,7 +47,6 @@ test("loads default config with lightweight notifications enabled", () => {
 
     assert.deepEqual(loadConfig(cwd), DEFAULT_CONFIG);
     assert.equal(loadConfig(cwd).notify, true);
-    assert.equal(loadConfig(cwd).debug, false);
   } finally {
     if (previousAgentDir === undefined) {
       delete process.env.PI_CODING_AGENT_DIR;
@@ -93,20 +92,19 @@ test("loads project contextBrake settings over global settings", () => {
 
     writeFileSync(
       join(agentDir, "settings.json"),
-      JSON.stringify({ contextBrake: { enabled: true, softThresholdPercent: 80, hardThresholdPercent: 90, notify: false, debug: true } }),
+      JSON.stringify({ contextBrake: { enabled: true, softThresholdPercent: 80, hardThresholdPercent: 95, notify: false } }),
     );
     writeFileSync(
       join(cwd, ".pi", "settings.json"),
-      JSON.stringify({ contextBrake: { softThresholdPercent: 88 } }),
+      JSON.stringify({ contextBrake: { softThresholdPercent: 90 } }),
     );
     process.env.PI_CODING_AGENT_DIR = agentDir;
 
     assert.deepEqual(loadConfig(cwd), {
       enabled: true,
-      softThresholdPercent: 88,
-      hardThresholdPercent: 90,
+      softThresholdPercent: 90,
+      hardThresholdPercent: 95,
       notify: false,
-      debug: true,
     });
   } finally {
     if (previousAgentDir === undefined) {

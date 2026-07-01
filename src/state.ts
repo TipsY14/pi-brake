@@ -1,5 +1,4 @@
 import type { ContextBrakeConfig } from "./config.ts";
-import type { ProviderPayloadAppendMetadata } from "./payload.ts";
 import type { BrakeLevel } from "./prompts.ts";
 
 export interface ContextUsageLike {
@@ -17,24 +16,6 @@ export interface BrakeDecision {
   turnId: number;
 }
 
-export interface LastDecisionDetails {
-  level: BrakeLevel | null;
-  percent: number | null;
-  tokens: number | null;
-  contextWindow: number | null;
-  timestamp: number;
-  reason: string;
-  turnId: number;
-}
-
-export interface LastInjectionDetails {
-  level: BrakeLevel;
-  percent: number;
-  timestamp: number;
-  turnId: number;
-  payload: ProviderPayloadAppendMetadata;
-}
-
 export interface AgentMessageLike {
   role?: unknown;
   customType?: unknown;
@@ -46,16 +27,12 @@ export interface AgentMessageLike {
 
 export interface BrakeRuntimeState {
   pending: BrakeDecision | null;
-  lastDecision: LastDecisionDetails | null;
-  lastInjection: LastInjectionDetails | null;
   turnId: number;
 }
 
 export function createBrakeRuntimeState(): BrakeRuntimeState {
   return {
     pending: null,
-    lastDecision: null,
-    lastInjection: null,
     turnId: 0,
   };
 }

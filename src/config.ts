@@ -9,32 +9,16 @@ export interface ContextBrakeConfig {
   softThresholdPercent: number;
   hardThresholdPercent: number;
   notify: boolean;
-  debug: boolean;
 }
 
 export const DEFAULT_CONFIG: ContextBrakeConfig = {
   enabled: true,
-  softThresholdPercent: 88,
-  hardThresholdPercent: 96,
+  softThresholdPercent: 90,
+  hardThresholdPercent: 98,
   notify: true,
-  debug: false,
 };
 
 type JsonObject = Record<string, unknown>;
-
-export interface ConfigSourceDiagnostics {
-  path: string;
-  exists: boolean;
-  raw: JsonObject;
-  error?: string;
-}
-
-export interface ContextBrakeConfigDiagnostics {
-  global: ConfigSourceDiagnostics;
-  project: ConfigSourceDiagnostics;
-  mergedRaw: JsonObject;
-  config: ContextBrakeConfig;
-}
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -46,32 +30,26 @@ function warningMessage(filePath: string, error: unknown): string {
   }`;
 }
 
-function readConfigSource(filePath: string): ConfigSourceDiagnostics {
-  const exists = existsSync(filePath);
-  if (!exists) {
-    return { path: filePath, exists, raw: {} };
+function readConfigSource(filePath: string): JsonObject {
+  if (!existsSync(filePath)) {
+    return {};
   }
 
   try {
     const parsed = JSON.parse(readFileSync(filePath, "utf8"));
     if (!isObject(parsed)) {
-      return { path: filePath, exists, raw: {}, error: "settings root is not an object" };
+      return {};
     }
 
     const raw = parsed[CONFIG_KEY];
-    if (raw === undefined) {
-      return { path: filePath, exists, raw: {} };
+    if (raw === undefined || !isObject(raw)) {
+      return {};
     }
 
-    if (!isObject(raw)) {
-      return { path: filePath, exists, raw: {}, error: `${CONFIG_KEY} is not an object` };
-    }
-
-    return { path: filePath, exists, raw };
+    return raw;
   } catch (error) {
-    const message = warningMessage(filePath, error);
-    console.warn(message);
-    return { path: filePath, exists, raw: {}, error: message };
+    console.warn(warningMessage(filePath, error));
+    return {};
   }
 }
 
@@ -97,7 +75,6 @@ function normalizeConfig(raw: JsonObject): ContextBrakeConfig {
       : typeof raw.showNotification === "boolean"
         ? raw.showNotification
         : DEFAULT_CONFIG.notify;
-  const debug = typeof raw.debug === "boolean" ? raw.debug : DEFAULT_CONFIG.debug;
   const softThresholdPercent = normalizeThreshold(
     raw.softThresholdPercent,
     DEFAULT_CONFIG.softThresholdPercent,
@@ -115,33 +92,22 @@ function normalizeConfig(raw: JsonObject): ContextBrakeConfig {
     );
   }
 
-  return { enabled, softThresholdPercent, hardThresholdPercent, notify, debug };
+  return { enabled, softThresholdPercent, hardThresholdPercent, notify };
 }
 
 export function getPiAgentDir(): string {
   return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 }
 
-export function loadConfigDiagnostics(cwd: string): ContextBrakeConfigDiagnostics {
+export function loadConfig(cwd: string): ContextBrakeConfig {
   const globalPath = join(getPiAgentDir(), "settings.json");
   const projectPath = join(cwd, ".pi", "settings.json");
-  const global = readConfigSource(globalPath);
-  const project = readConfigSource(projectPath);
   const mergedRaw = {
-    ...global.raw,
-    ...project.raw,
+    ...readConfigSource(globalPath),
+    ...readConfigSource(projectPath),
   };
 
-  return {
-    global,
-    project,
-    mergedRaw,
-    config: normalizeConfig(mergedRaw),
-  };
-}
-
-export function loadConfig(cwd: string): ContextBrakeConfig {
-  return loadConfigDiagnostics(cwd).config;
+  return normalizeConfig(mergedRaw);
 }
 
 export function exampleGlobalSettingsPath(): string {
