@@ -6,18 +6,23 @@ import { CUSTOM_MESSAGE_TYPE } from "../src/state.ts";
 
 type Handler = (event: any, ctx: any) => any;
 type HandlerMap = Map<string, Handler[]>;
+type Command = { description?: string; handler: (args: string, ctx: any) => Promise<void> };
 
-function createHarness(): { handlers: HandlerMap } {
+function createHarness(): { handlers: HandlerMap; commands: Map<string, Command> } {
   const handlers: HandlerMap = new Map();
+  const commands = new Map<string, Command>();
   const pi = {
     on(event: string, handler: Handler) {
       const list = handlers.get(event) ?? [];
       list.push(handler);
       handlers.set(event, list);
     },
+    registerCommand(name: string, command: Command) {
+      commands.set(name, command);
+    },
   };
   contextBrakeExtension(pi as unknown as ExtensionAPI);
-  return { handlers };
+  return { handlers, commands };
 }
 
 function firstHandler(handlers: HandlerMap, name: string): Handler {
@@ -26,23 +31,26 @@ function firstHandler(handlers: HandlerMap, name: string): Handler {
   return handler;
 }
 
-function createContext(percent: number) {
+function createContext(percent: number, overrides: Record<string, unknown> = {}) {
   return {
     cwd: process.cwd(),
     hasUI: false,
-    ui: { setStatus() {} },
+    ui: { setStatus() {}, setWidget() {}, notify() {} },
+    model: undefined,
     getContextUsage() {
       return { tokens: percent, contextWindow: 100, percent };
     },
+    ...overrides,
   };
 }
 
-test("registers context/provider hooks without taking over compaction", () => {
-  const { handlers } = createHarness();
+test("registers context/provider hooks and diagnostics command without taking over compaction", () => {
+  const { handlers, commands } = createHarness();
 
   assert.equal(handlers.has("context"), true);
   assert.equal(handlers.has("before_provider_request"), true);
   assert.equal(handlers.has("session_before_compact"), false);
+  assert.equal(commands.has("context-brake"), true);
 });
 
 test("does not append brake guidance during context monitoring", () => {
@@ -132,4 +140,51 @@ test("turn_start clears a pending brake before it can leak into a later request"
   const result = providerHandler({ payload: { messages: [{ role: "user", content: "next" }] } }, createContext(90));
 
   assert.equal(result, undefined);
+});
+
+test("diagnostics command reports config, usage, model, decisions, and injection metadata", async () => {
+  const { handlers, commands } = createHarness();
+  const contextHandler = firstHandler(handlers, "context");
+  const providerHandler = firstHandler(handlers, "before_provider_request");
+  const command = commands.get("context-brake");
+  assert.ok(command, "expected context-brake command");
+
+  let widgetText = "";
+  const ctx = createContext(96, {
+    hasUI: true,
+    model: {
+      provider: "test-provider",
+      id: "test-model",
+      name: "Test Model",
+      api: "test-api",
+      contextWindow: 100,
+      maxTokens: 10,
+    },
+    ui: {
+      setStatus() {},
+      notify() {},
+      setWidget(_key: string, content: string[]) {
+        widgetText = content.join("\n");
+      },
+    },
+  });
+
+  contextHandler({ messages: [{ role: "user", content: "work" }] }, ctx);
+  const result = providerHandler({ payload: { model: "unknown-shape" } }, ctx);
+  await command.handler("", ctx);
+
+  assert.deepEqual(result, { model: "unknown-shape" });
+  assert.match(widgetText, /pi-context-brake diagnostics/);
+  assert.match(widgetText, /normalized:/);
+  assert.match(widgetText, /tokens: 96/);
+  assert.match(widgetText, /percent: 96%/);
+  assert.match(widgetText, /provider: test-provider/);
+  assert.match(widgetText, /id: test-model/);
+  assert.match(widgetText, /pending: none/);
+  assert.match(widgetText, /last decision:/);
+  assert.match(widgetText, /level: hard/);
+  assert.match(widgetText, /reason: percent 96% >= hard threshold 96%/);
+  assert.match(widgetText, /last injection:/);
+  assert.match(widgetText, /payload shape: unknown/);
+  assert.match(widgetText, /payload mutated: false/);
 });

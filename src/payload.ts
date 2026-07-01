@@ -2,6 +2,27 @@ type JsonObject = Record<string, unknown>;
 
 type MessageContentKind = "string" | "typedText" | "plainTextBlock";
 
+export type ProviderPayloadShape =
+  | "messages"
+  | "responses-input-array"
+  | "responses-input-string"
+  | "google-contents"
+  | "instructions"
+  | "unknown"
+  | "non-object";
+
+export interface ProviderPayloadAppendMetadata {
+  mutated: boolean;
+  shape: ProviderPayloadShape;
+  mutation: string;
+  promptChars: number;
+}
+
+export interface ProviderPayloadAppendResult {
+  payload: unknown;
+  metadata: ProviderPayloadAppendMetadata;
+}
+
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -114,37 +135,72 @@ function appendToGoogleContents(contents: unknown[], prompt: string): unknown[] 
   return output;
 }
 
+function metadata(shape: ProviderPayloadShape, mutated: boolean, mutation: string, prompt: string): ProviderPayloadAppendMetadata {
+  return {
+    mutated,
+    shape,
+    mutation,
+    promptChars: prompt.length,
+  };
+}
+
 /**
- * Append brake guidance to the final serialized provider payload.
+ * Append brake guidance to the final serialized provider payload and report
+ * whether a known provider payload shape was actually mutated.
  *
  * Pi providers use a few payload shapes (`messages`, OpenAI Responses `input`,
  * or Gemini `contents`). This helper keeps the edit best-effort and local to
  * the current request; it does not touch session history.
  */
-export function appendBrakeToProviderPayload(payload: unknown, prompt: string): unknown {
+export function appendBrakeToProviderPayloadWithMetadata(payload: unknown, prompt: string): ProviderPayloadAppendResult {
   if (!isObject(payload)) {
-    return payload;
+    return {
+      payload,
+      metadata: metadata("non-object", false, "payload was not an object; left unchanged", prompt),
+    };
   }
 
   if (Array.isArray(payload.input)) {
-    return { ...payload, input: appendToResponsesInput(payload.input, prompt) };
+    return {
+      payload: { ...payload, input: appendToResponsesInput(payload.input, prompt) },
+      metadata: metadata("responses-input-array", true, "appended to OpenAI Responses input array", prompt),
+    };
   }
 
   if (typeof payload.input === "string") {
-    return { ...payload, input: appendToString(payload.input, prompt) };
+    return {
+      payload: { ...payload, input: appendToString(payload.input, prompt) },
+      metadata: metadata("responses-input-string", true, "appended to string input", prompt),
+    };
   }
 
   if (Array.isArray(payload.contents)) {
-    return { ...payload, contents: appendToGoogleContents(payload.contents, prompt) };
+    return {
+      payload: { ...payload, contents: appendToGoogleContents(payload.contents, prompt) },
+      metadata: metadata("google-contents", true, "appended to Google contents", prompt),
+    };
   }
 
   if (Array.isArray(payload.messages)) {
-    return { ...payload, messages: appendToMessages(payload.messages, prompt) };
+    return {
+      payload: { ...payload, messages: appendToMessages(payload.messages, prompt) },
+      metadata: metadata("messages", true, "appended to chat messages", prompt),
+    };
   }
 
   if (typeof payload.instructions === "string") {
-    return { ...payload, instructions: appendToString(payload.instructions, prompt) };
+    return {
+      payload: { ...payload, instructions: appendToString(payload.instructions, prompt) },
+      metadata: metadata("instructions", true, "appended to instructions string", prompt),
+    };
   }
 
-  return payload;
+  return {
+    payload,
+    metadata: metadata("unknown", false, "no known appendable payload field found; left unchanged", prompt),
+  };
+}
+
+export function appendBrakeToProviderPayload(payload: unknown, prompt: string): unknown {
+  return appendBrakeToProviderPayloadWithMetadata(payload, prompt).payload;
 }

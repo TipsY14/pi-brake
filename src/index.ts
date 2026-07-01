@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { loadConfig } from "./config.ts";
-import { appendBrakeToProviderPayload } from "./payload.ts";
+import { formatContextBrakeDiagnostics } from "./diagnostics.ts";
+import { loadConfig, loadConfigDiagnostics } from "./config.ts";
+import { appendBrakeToProviderPayloadWithMetadata } from "./payload.ts";
 import { brakePrompt } from "./prompts.ts";
 import {
   CUSTOM_MESSAGE_TYPE,
@@ -8,9 +9,11 @@ import {
   createBrakeRuntimeState,
   usagePercent,
   type AgentMessageLike,
+  type ContextUsageLike,
 } from "./state.ts";
 
 const STATUS_KEY = "context-brake";
+const DIAGNOSTICS_WIDGET_KEY = "context-brake-diagnostics";
 
 function withoutPreviousBrakeMessages(messages: AgentMessageLike[]): AgentMessageLike[] {
   return messages.filter((message) => {
@@ -22,6 +25,38 @@ function clearStatus(ctx: ExtensionContext): void {
   if (ctx.hasUI) {
     ctx.ui.setStatus(STATUS_KEY, undefined);
   }
+}
+
+function debugNotify(ctx: ExtensionContext, enabled: boolean, message: string, type: "info" | "warning" = "info"): void {
+  if (enabled && ctx.hasUI) {
+    ctx.ui.notify(`[context-brake] ${message}`, type);
+  }
+}
+
+function decisionReason(level: "soft" | "hard" | null, percent: number | null, config: ReturnType<typeof loadConfig>): string {
+  if (!config.enabled) {
+    return "disabled by config";
+  }
+  if (percent === null) {
+    return "context usage percent is unknown";
+  }
+  if (level === "hard") {
+    return `percent ${Math.round(percent * 100) / 100}% >= hard threshold ${config.hardThresholdPercent}%`;
+  }
+  if (level === "soft") {
+    return `percent ${Math.round(percent * 100) / 100}% >= soft threshold ${config.softThresholdPercent}%`;
+  }
+  return `percent ${Math.round(percent * 100) / 100}% below soft threshold ${config.softThresholdPercent}%`;
+}
+
+function showDiagnosticsReport(ctx: ExtensionContext, report: string): void {
+  if (ctx.hasUI) {
+    ctx.ui.setWidget(DIAGNOSTICS_WIDGET_KEY, report.split("\n"), { placement: "aboveEditor" });
+    ctx.ui.notify("context-brake diagnostics shown above the editor", "info");
+    return;
+  }
+
+  console.log(report);
 }
 
 export default function contextBrakeExtension(pi: ExtensionAPI) {
@@ -38,6 +73,22 @@ export default function contextBrakeExtension(pi: ExtensionAPI) {
       clearStatus(ctx);
     }
   };
+
+  pi.registerCommand("context-brake", {
+    description: "Show pi-context-brake configuration and runtime diagnostics",
+    handler: async (_args, ctx) => {
+      const usage = ctx.getContextUsage() as ContextUsageLike | undefined;
+      const report = formatContextBrakeDiagnostics({
+        cwd: ctx.cwd,
+        configDiagnostics: loadConfigDiagnostics(ctx.cwd),
+        usage,
+        model: ctx.model,
+        state,
+      });
+
+      showDiagnosticsReport(ctx, report);
+    },
+  });
 
   pi.on("session_start", () => {
     beginFreshAgentScope();
@@ -61,19 +112,31 @@ export default function contextBrakeExtension(pi: ExtensionAPI) {
   pi.on("context", (event, ctx) => {
     const messages = withoutPreviousBrakeMessages(event.messages as AgentMessageLike[]);
     const config = loadConfig(ctx.cwd);
+    const usage = ctx.getContextUsage() as ContextUsageLike | undefined;
+    const percent = usagePercent(usage, messages);
+    const level = chooseBrakeLevel(percent, config);
+
+    state.lastDecision = {
+      level,
+      percent,
+      tokens: usage?.tokens ?? null,
+      contextWindow: usage?.contextWindow ?? null,
+      timestamp: Date.now(),
+      reason: decisionReason(level, percent, config),
+      turnId: state.turnId,
+    };
 
     if (!config.enabled) {
       clearPending();
       clearStatus(ctx);
+      debugNotify(ctx, config.debug, "disabled by config");
       return messages.length === event.messages.length ? undefined : { messages: messages as never };
     }
-
-    const percent = usagePercent(ctx.getContextUsage(), messages);
-    const level = chooseBrakeLevel(percent, config);
 
     if (!level || percent === null) {
       clearPending();
       clearStatus(ctx);
+      debugNotify(ctx, config.debug, state.lastDecision.reason);
       return messages.length === event.messages.length ? undefined : { messages: messages as never };
     }
 
@@ -88,6 +151,7 @@ export default function contextBrakeExtension(pi: ExtensionAPI) {
     if (ctx.hasUI) {
       ctx.ui.setStatus(STATUS_KEY, `${level} brake ${Math.round(percent)}%`);
     }
+    debugNotify(ctx, config.debug, `${level} brake pending at ${Math.round(percent * 100) / 100}%`);
 
     // Do not return a brake message here. The context event is only the
     // pressure monitor; final injection happens at before_provider_request so
@@ -95,7 +159,7 @@ export default function contextBrakeExtension(pi: ExtensionAPI) {
     return messages.length === event.messages.length ? undefined : { messages: messages as never };
   });
 
-  pi.on("before_provider_request", (event) => {
+  pi.on("before_provider_request", (event, ctx) => {
     const decision = state.pending;
     if (!decision || decision.turnId !== state.turnId) {
       clearPending();
@@ -107,7 +171,24 @@ export default function contextBrakeExtension(pi: ExtensionAPI) {
     // shape is unfamiliar, the helper returns it unchanged rather than risking
     // corruption; the pending flag is still consumed so there is no leak.
     clearPending();
-    return appendBrakeToProviderPayload(event.payload, decision.prompt);
+    const result = appendBrakeToProviderPayloadWithMetadata(event.payload, decision.prompt);
+    state.lastInjection = {
+      level: decision.level,
+      percent: decision.percent,
+      timestamp: Date.now(),
+      turnId: decision.turnId,
+      payload: result.metadata,
+    };
+
+    const config = loadConfig(ctx.cwd);
+    debugNotify(
+      ctx,
+      config.debug,
+      `injected ${decision.level} brake (${result.metadata.shape}, mutated=${result.metadata.mutated})`,
+      result.metadata.mutated ? "info" : "warning",
+    );
+
+    return result.payload;
   });
 
   pi.on("agent_end", (_event, ctx) => {

@@ -8,40 +8,69 @@ export interface ContextBrakeConfig {
   enabled: boolean;
   softThresholdPercent: number;
   hardThresholdPercent: number;
+  debug: boolean;
 }
 
 export const DEFAULT_CONFIG: ContextBrakeConfig = {
   enabled: true,
   softThresholdPercent: 88,
   hardThresholdPercent: 96,
+  debug: false,
 };
 
 type JsonObject = Record<string, unknown>;
+
+export interface ConfigSourceDiagnostics {
+  path: string;
+  exists: boolean;
+  raw: JsonObject;
+  error?: string;
+}
+
+export interface ContextBrakeConfigDiagnostics {
+  global: ConfigSourceDiagnostics;
+  project: ConfigSourceDiagnostics;
+  mergedRaw: JsonObject;
+  config: ContextBrakeConfig;
+}
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readJsonObject(filePath: string): JsonObject {
-  if (!existsSync(filePath)) {
-    return {};
+function warningMessage(filePath: string, error: unknown): string {
+  return `[context-brake] Ignoring unreadable settings file ${filePath}: ${
+    error instanceof Error ? error.message : String(error)
+  }`;
+}
+
+function readConfigSource(filePath: string): ConfigSourceDiagnostics {
+  const exists = existsSync(filePath);
+  if (!exists) {
+    return { path: filePath, exists, raw: {} };
   }
 
   try {
     const parsed = JSON.parse(readFileSync(filePath, "utf8"));
-    return isObject(parsed) ? parsed : {};
-  } catch (error) {
-    console.warn(
-      `[context-brake] Ignoring unreadable settings file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return {};
-  }
-}
+    if (!isObject(parsed)) {
+      return { path: filePath, exists, raw: {}, error: "settings root is not an object" };
+    }
 
-function readRawConfig(filePath: string): JsonObject {
-  const settings = readJsonObject(filePath);
-  const raw = settings[CONFIG_KEY];
-  return isObject(raw) ? raw : {};
+    const raw = parsed[CONFIG_KEY];
+    if (raw === undefined) {
+      return { path: filePath, exists, raw: {} };
+    }
+
+    if (!isObject(raw)) {
+      return { path: filePath, exists, raw: {}, error: `${CONFIG_KEY} is not an object` };
+    }
+
+    return { path: filePath, exists, raw };
+  } catch (error) {
+    const message = warningMessage(filePath, error);
+    console.warn(message);
+    return { path: filePath, exists, raw: {}, error: message };
+  }
 }
 
 function normalizeThreshold(value: unknown, fallback: number, label: string): number {
@@ -60,6 +89,7 @@ function normalizeThreshold(value: unknown, fallback: number, label: string): nu
 
 function normalizeConfig(raw: JsonObject): ContextBrakeConfig {
   const enabled = typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_CONFIG.enabled;
+  const debug = typeof raw.debug === "boolean" ? raw.debug : DEFAULT_CONFIG.debug;
   const softThresholdPercent = normalizeThreshold(
     raw.softThresholdPercent,
     DEFAULT_CONFIG.softThresholdPercent,
@@ -77,22 +107,33 @@ function normalizeConfig(raw: JsonObject): ContextBrakeConfig {
     );
   }
 
-  return { enabled, softThresholdPercent, hardThresholdPercent };
+  return { enabled, softThresholdPercent, hardThresholdPercent, debug };
 }
 
 export function getPiAgentDir(): string {
   return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 }
 
-export function loadConfig(cwd: string): ContextBrakeConfig {
+export function loadConfigDiagnostics(cwd: string): ContextBrakeConfigDiagnostics {
   const globalPath = join(getPiAgentDir(), "settings.json");
   const projectPath = join(cwd, ".pi", "settings.json");
-  const raw = {
-    ...readRawConfig(globalPath),
-    ...readRawConfig(projectPath),
+  const global = readConfigSource(globalPath);
+  const project = readConfigSource(projectPath);
+  const mergedRaw = {
+    ...global.raw,
+    ...project.raw,
   };
 
-  return normalizeConfig(raw);
+  return {
+    global,
+    project,
+    mergedRaw,
+    config: normalizeConfig(mergedRaw),
+  };
+}
+
+export function loadConfig(cwd: string): ContextBrakeConfig {
+  return loadConfigDiagnostics(cwd).config;
 }
 
 export function exampleGlobalSettingsPath(): string {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendBrakeToProviderPayload } from "../src/payload.ts";
+import { appendBrakeToProviderPayload, appendBrakeToProviderPayloadWithMetadata } from "../src/payload.ts";
 
 const prompt = "BRAKE";
 
@@ -62,4 +62,29 @@ test("leaves unknown payload shapes unchanged", () => {
   const payload = { model: "custom" };
 
   assert.equal(appendBrakeToProviderPayload(payload, prompt), payload);
+});
+
+test("reports metadata when mutating a known payload shape", () => {
+  const result = appendBrakeToProviderPayloadWithMetadata({ messages: [{ role: "user", content: "hello" }] }, prompt);
+
+  assert.deepEqual(result.payload, { messages: [{ role: "user", content: "hello\n\nBRAKE" }] });
+  assert.deepEqual(result.metadata, {
+    mutated: true,
+    shape: "messages",
+    mutation: "appended to chat messages",
+    promptChars: 5,
+  });
+});
+
+test("reports metadata when payload shape is unknown", () => {
+  const payload = { model: "custom" };
+  const result = appendBrakeToProviderPayloadWithMetadata(payload, prompt);
+
+  assert.equal(result.payload, payload);
+  assert.deepEqual(result.metadata, {
+    mutated: false,
+    shape: "unknown",
+    mutation: "no known appendable payload field found; left unchanged",
+    promptChars: 5,
+  });
 });

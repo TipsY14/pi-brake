@@ -67,7 +67,8 @@ Configure under `contextBrake` in either global `~/.pi/agent/settings.json` or p
   "contextBrake": {
     "enabled": true,
     "softThresholdPercent": 88,
-    "hardThresholdPercent": 96
+    "hardThresholdPercent": 96,
+    "debug": false
   }
 }
 ```
@@ -79,6 +80,34 @@ All fields are optional. Thresholds may be written as percentages (`88`) or rati
 | `enabled` | `true` | Enables/disables brake injection. |
 | `softThresholdPercent` | `88` | Adds soft stop guidance when context usage reaches this percent. |
 | `hardThresholdPercent` | `96` | Adds stronger immediate-stop guidance when context usage reaches this percent. |
+| `debug` | `false` | Enables small UI notifications for decisions/injections. Off by default to avoid noise. |
+
+## Diagnostics
+
+Run this Pi command inside a session:
+
+```text
+/context-brake
+```
+
+It reports:
+
+- normalized `contextBrake` config from global `~/.pi/agent/settings.json` plus project `.pi/settings.json`
+- current `ctx.getContextUsage()` tokens, context window, and percent, including `null` percent after compaction or before usage is known
+- current model provider, id, API, context window, and max tokens when Pi exposes them
+- pending one-shot brake state, if any
+- last pressure decision with level, percent, timestamp, and reason
+- last provider-payload injection with level, percent, timestamp, payload shape, and whether the payload was actually mutated
+
+Troubleshooting checklist:
+
+1. Run `/context-brake` and verify `enabled: true`, the thresholds, and the current percent.
+2. Run `pi list` and confirm `pi-context-brake` / `git:github.com/TipsY14/pi-brake` appears in the loaded package list.
+3. Run `/reload` or restart Pi after installing or updating the package.
+4. Verify the selected model context window; an unexpectedly large `contextWindow` can keep percent below the thresholds.
+5. If `percent` is `null`, continue one model turn or inspect `tokens`/`contextWindow`; Pi may not know usage immediately after compaction.
+6. For testing only, temporarily lower `softThresholdPercent` and `hardThresholdPercent` (for example `5` and `10`) to prove the command records a decision and injection.
+7. If the last injection says `payload mutated: false`, the provider payload shape was not recognized; open an issue with the payload shape from diagnostics.
 
 ## Brake prompts
 

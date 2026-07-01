@@ -8,7 +8,7 @@ import { SOFT_BRAKE_PROMPT, HARD_BRAKE_PROMPT } from "../src/prompts.ts";
 import { chooseBrakeLevel, usagePercent } from "../src/state.ts";
 
 test("chooses no/soft/hard brake at configured thresholds", () => {
-  const config = { enabled: true, softThresholdPercent: 88, hardThresholdPercent: 96 };
+  const config = { enabled: true, softThresholdPercent: 88, hardThresholdPercent: 96, debug: false };
 
   assert.equal(chooseBrakeLevel(87.9, config), null);
   assert.equal(chooseBrakeLevel(88, config), "soft");
@@ -46,7 +46,7 @@ test("loads project contextBrake settings over global settings", () => {
 
     writeFileSync(
       join(agentDir, "settings.json"),
-      JSON.stringify({ contextBrake: { enabled: true, softThresholdPercent: 80, hardThresholdPercent: 90 } }),
+      JSON.stringify({ contextBrake: { enabled: true, softThresholdPercent: 80, hardThresholdPercent: 90, debug: true } }),
     );
     writeFileSync(
       join(cwd, ".pi", "settings.json"),
@@ -58,6 +58,7 @@ test("loads project contextBrake settings over global settings", () => {
       enabled: true,
       softThresholdPercent: 88,
       hardThresholdPercent: 90,
+      debug: true,
     });
   } finally {
     if (previousAgentDir === undefined) {
