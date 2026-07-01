@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../src/config.ts";
+import { DEFAULT_CONFIG, loadConfig } from "../src/config.ts";
 import { SOFT_BRAKE_PROMPT, HARD_BRAKE_PROMPT } from "../src/prompts.ts";
 import { chooseBrakeLevel, usagePercent } from "../src/state.ts";
 
 test("chooses no/soft/hard brake at configured thresholds", () => {
-  const config = { enabled: true, softThresholdPercent: 88, hardThresholdPercent: 96, debug: false };
+  const config = { enabled: true, softThresholdPercent: 88, hardThresholdPercent: 96, notify: true, debug: false };
 
   assert.equal(chooseBrakeLevel(87.9, config), null);
   assert.equal(chooseBrakeLevel(88, config), "soft");
@@ -34,6 +34,53 @@ test("estimates context percent from messages when tokens are unknown", () => {
   assert.equal(percent, 22);
 });
 
+test("loads default config with lightweight notifications enabled", () => {
+  const root = mkdtempSync(join(tmpdir(), "context-brake-default-"));
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+
+  try {
+    const agentDir = join(root, "agent");
+    const cwd = join(root, "project");
+    mkdirSync(agentDir, { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+
+    assert.deepEqual(loadConfig(cwd), DEFAULT_CONFIG);
+    assert.equal(loadConfig(cwd).notify, true);
+    assert.equal(loadConfig(cwd).debug, false);
+  } finally {
+    if (previousAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loads showNotification as a notify alias", () => {
+  const root = mkdtempSync(join(tmpdir(), "context-brake-alias-"));
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+
+  try {
+    const agentDir = join(root, "agent");
+    const cwd = join(root, "project");
+    mkdirSync(agentDir, { recursive: true });
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "settings.json"), JSON.stringify({ contextBrake: { showNotification: false } }));
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+
+    assert.equal(loadConfig(cwd).notify, false);
+  } finally {
+    if (previousAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loads project contextBrake settings over global settings", () => {
   const root = mkdtempSync(join(tmpdir(), "context-brake-"));
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -46,7 +93,7 @@ test("loads project contextBrake settings over global settings", () => {
 
     writeFileSync(
       join(agentDir, "settings.json"),
-      JSON.stringify({ contextBrake: { enabled: true, softThresholdPercent: 80, hardThresholdPercent: 90, debug: true } }),
+      JSON.stringify({ contextBrake: { enabled: true, softThresholdPercent: 80, hardThresholdPercent: 90, notify: false, debug: true } }),
     );
     writeFileSync(
       join(cwd, ".pi", "settings.json"),
@@ -58,6 +105,7 @@ test("loads project contextBrake settings over global settings", () => {
       enabled: true,
       softThresholdPercent: 88,
       hardThresholdPercent: 90,
+      notify: false,
       debug: true,
     });
   } finally {

@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import contextBrakeExtension from "../src/index.ts";
 import { CUSTOM_MESSAGE_TYPE } from "../src/state.ts";
@@ -110,6 +113,102 @@ test("removes stale brake messages without adding a new session message", () => 
 
   assert.equal(result.messages.length, 1);
   assert.equal(brakeMessages.length, 0);
+});
+
+test("shows lightweight UI-only notification when a brake is injected", () => {
+  const { handlers } = createHarness();
+  const contextHandler = firstHandler(handlers, "context");
+  const providerHandler = firstHandler(handlers, "before_provider_request");
+  const notifications: Array<{ message: string; type: string }> = [];
+  const statuses: Array<{ key: string; value: string | undefined }> = [];
+  const ctx = createContext(89, {
+    hasUI: true,
+    ui: {
+      setStatus(key: string, value: string | undefined) {
+        statuses.push({ key, value });
+      },
+      notify(message: string, type: string) {
+        notifications.push({ message, type });
+      },
+      setWidget() {},
+    },
+  });
+
+  contextHandler({ messages: [{ role: "user", content: "work" }] }, ctx);
+  assert.equal(notifications.length, 0, "context monitoring should stay silent by default");
+
+  providerHandler({ payload: { messages: [{ role: "user", content: "work" }] } }, ctx);
+
+  assert.deepEqual(statuses.at(-1), { key: "context-brake", value: "context-brake: soft brake active at 89%" });
+  assert.deepEqual(notifications, [{ message: "context-brake: soft brake active at 89%", type: "info" }]);
+});
+
+test("uses warning notification text for hard brake injection", () => {
+  const { handlers } = createHarness();
+  const contextHandler = firstHandler(handlers, "context");
+  const providerHandler = firstHandler(handlers, "before_provider_request");
+  const notifications: Array<{ message: string; type: string }> = [];
+  const ctx = createContext(97, {
+    hasUI: true,
+    ui: {
+      setStatus() {},
+      notify(message: string, type: string) {
+        notifications.push({ message, type });
+      },
+      setWidget() {},
+    },
+  });
+
+  contextHandler({ messages: [{ role: "user", content: "work" }] }, ctx);
+  providerHandler({ payload: { messages: [{ role: "user", content: "work" }] } }, ctx);
+
+  assert.deepEqual(notifications, [{ message: "context-brake: hard brake active at 97%", type: "warning" }]);
+});
+
+test("does not notify when notify config is disabled", () => {
+  const root = mkdtempSync(join(tmpdir(), "context-brake-ext-"));
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+
+  try {
+    const agentDir = join(root, "agent");
+    const cwd = join(root, "project");
+    mkdirSync(agentDir, { recursive: true });
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "settings.json"), JSON.stringify({ contextBrake: { notify: false } }));
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+
+    const { handlers } = createHarness();
+    const contextHandler = firstHandler(handlers, "context");
+    const providerHandler = firstHandler(handlers, "before_provider_request");
+    const notifications: string[] = [];
+    const statuses: Array<string | undefined> = [];
+    const ctx = createContext(89, {
+      cwd,
+      hasUI: true,
+      ui: {
+        setStatus(_key: string, value: string | undefined) {
+          statuses.push(value);
+        },
+        notify(message: string) {
+          notifications.push(message);
+        },
+        setWidget() {},
+      },
+    });
+
+    contextHandler({ messages: [{ role: "user", content: "work" }] }, ctx);
+    providerHandler({ payload: { messages: [{ role: "user", content: "work" }] } }, ctx);
+
+    assert.deepEqual(notifications, []);
+    assert.deepEqual(statuses, []);
+  } finally {
+    if (previousAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("before_provider_request consumes the one-shot pending flag", () => {

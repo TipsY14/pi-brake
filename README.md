@@ -12,6 +12,8 @@ This package is intentionally small and companion-only. It does **not** summariz
 - The injected text is framed as a temporary controller instruction and tells the model to follow it silently without mentioning the instruction, context pressure, or compaction mechanics.
 - The `context` event only monitors pressure; final injection happens in `before_provider_request`, then the in-memory pending flag is cleared immediately.
 - The brake text is never written as a normal user message and is not persisted to session history.
+- When a brake is actually injected, Pi shows a lightweight UI-only status/notification such as `context-brake: soft brake active at 89%` or `context-brake: hard brake active at 97%`.
+- The notification uses `ctx.ui` only; it does not create user messages, assistant messages, custom session messages, or context pollution.
 - No checkpoint files, no continuation ledger, no automatic resume, and no compaction hook takeover.
 - Compatible with `pi-smart-compact` or any other extension that owns `session_before_compact`.
 
@@ -68,6 +70,7 @@ Configure under `contextBrake` in either global `~/.pi/agent/settings.json` or p
     "enabled": true,
     "softThresholdPercent": 88,
     "hardThresholdPercent": 96,
+    "notify": true,
     "debug": false
   }
 }
@@ -80,9 +83,24 @@ All fields are optional. Thresholds may be written as percentages (`88`) or rati
 | `enabled` | `true` | Enables/disables brake injection. |
 | `softThresholdPercent` | `88` | Adds soft stop guidance when context usage reaches this percent. |
 | `hardThresholdPercent` | `96` | Adds stronger immediate-stop guidance when context usage reaches this percent. |
-| `debug` | `false` | Enables small UI notifications for decisions/injections. Off by default to avoid noise. |
+| `notify` | `true` | Shows one lightweight UI-only notification/status when a brake is actually injected. Set to `false` to silence normal notifications. |
+| `debug` | `false` | Enables noisy diagnostic notifications for pressure decisions and injection metadata. Keep off unless troubleshooting. |
+
+`showNotification` is also accepted as a compatibility alias for `notify`, but `notify` is preferred.
+
+To disable the lightweight brake notification while keeping brake injection active:
+
+```json
+{
+  "contextBrake": {
+    "notify": false
+  }
+}
+```
 
 ## Diagnostics
+
+Normal operation is intentionally lightweight. The `/context-brake` command remains available as an emergency diagnostics report when you need to verify configuration or provider-payload injection behavior.
 
 Run this Pi command inside a session:
 

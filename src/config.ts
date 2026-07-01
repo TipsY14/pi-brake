@@ -8,6 +8,7 @@ export interface ContextBrakeConfig {
   enabled: boolean;
   softThresholdPercent: number;
   hardThresholdPercent: number;
+  notify: boolean;
   debug: boolean;
 }
 
@@ -15,6 +16,7 @@ export const DEFAULT_CONFIG: ContextBrakeConfig = {
   enabled: true,
   softThresholdPercent: 88,
   hardThresholdPercent: 96,
+  notify: true,
   debug: false,
 };
 
@@ -89,6 +91,12 @@ function normalizeThreshold(value: unknown, fallback: number, label: string): nu
 
 function normalizeConfig(raw: JsonObject): ContextBrakeConfig {
   const enabled = typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_CONFIG.enabled;
+  const notify =
+    typeof raw.notify === "boolean"
+      ? raw.notify
+      : typeof raw.showNotification === "boolean"
+        ? raw.showNotification
+        : DEFAULT_CONFIG.notify;
   const debug = typeof raw.debug === "boolean" ? raw.debug : DEFAULT_CONFIG.debug;
   const softThresholdPercent = normalizeThreshold(
     raw.softThresholdPercent,
@@ -107,7 +115,7 @@ function normalizeConfig(raw: JsonObject): ContextBrakeConfig {
     );
   }
 
-  return { enabled, softThresholdPercent, hardThresholdPercent, debug };
+  return { enabled, softThresholdPercent, hardThresholdPercent, notify, debug };
 }
 
 export function getPiAgentDir(): string {

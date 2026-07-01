@@ -33,6 +33,20 @@ function debugNotify(ctx: ExtensionContext, enabled: boolean, message: string, t
   }
 }
 
+function formatBrakeActiveText(level: "soft" | "hard", percent: number): string {
+  return `context-brake: ${level} brake active at ${Math.round(percent)}%`;
+}
+
+function notifyBrakeInjected(ctx: ExtensionContext, enabled: boolean, level: "soft" | "hard", percent: number): void {
+  if (!enabled || !ctx.hasUI) {
+    return;
+  }
+
+  const text = formatBrakeActiveText(level, percent);
+  ctx.ui.setStatus(STATUS_KEY, text);
+  ctx.ui.notify(text, level === "hard" ? "warning" : "info");
+}
+
 function decisionReason(level: "soft" | "hard" | null, percent: number | null, config: ReturnType<typeof loadConfig>): string {
   if (!config.enabled) {
     return "disabled by config";
@@ -148,9 +162,6 @@ export default function contextBrakeExtension(pi: ExtensionAPI) {
     };
     state.pending = decision;
 
-    if (ctx.hasUI) {
-      ctx.ui.setStatus(STATUS_KEY, `${level} brake ${Math.round(percent)}%`);
-    }
     debugNotify(ctx, config.debug, `${level} brake pending at ${Math.round(percent * 100) / 100}%`);
 
     // Do not return a brake message here. The context event is only the
@@ -181,6 +192,9 @@ export default function contextBrakeExtension(pi: ExtensionAPI) {
     };
 
     const config = loadConfig(ctx.cwd);
+    if (result.metadata.mutated) {
+      notifyBrakeInjected(ctx, config.notify, decision.level, decision.percent);
+    }
     debugNotify(
       ctx,
       config.debug,
